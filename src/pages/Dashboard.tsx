@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { FileText, Download, Clock, LogOut, FileBadge2, AlertCircle } from 'lucide-react';
+import { FileText, Download, Clock, LogOut, FileBadge2, AlertCircle, AlertTriangle } from 'lucide-react';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -11,6 +11,8 @@ export default function Dashboard() {
   const [selectedStudent, setSelectedStudent] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [loading, setLoading] = useState(false);
+  const [reportingIssueId, setReportingIssueId] = useState<number | null>(null);
+  const [issueNotes, setIssueNotes] = useState('');
 
   const cpf = localStorage.getItem('portal_cpf');
   // Em prod usar o token adequadamente, aqui estamos apenas pegando cpf do state
@@ -88,6 +90,7 @@ export default function Dashboard() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             requestId: reqData?.id,
+            protocol: protocol,
             studentName: student.student_name,
             parentName: student.parent_name,
             templateName: template.name
@@ -99,6 +102,30 @@ export default function Dashboard() {
       }
     } catch(err) {
       alert('Erro ao solicitar documento');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReportIssue = async () => {
+    if (!issueNotes.trim()) return alert('Por favor, descreva o problema.');
+    setLoading(true);
+    try {
+      // Pega os notes antigos, se houver
+      const req = requests.find(r => r.id === reportingIssueId);
+      const newNotes = req?.notes ? `${req.notes}\n---\nProblema relatado pelo Pai: ${issueNotes}` : `Problema relatado pelo Pai: ${issueNotes}`;
+
+      await supabase.from('requests').update({
+        status: 'Em análise',
+        notes: newNotes
+      }).eq('id', reportingIssueId);
+
+      alert('Sua solicitação de revisão foi enviada para a secretaria!');
+      setReportingIssueId(null);
+      setIssueNotes('');
+      loadData();
+    } catch(err) {
+      alert('Erro ao relatar problema.');
     } finally {
       setLoading(false);
     }
@@ -200,14 +227,22 @@ export default function Dashboard() {
                       
                       <div>
                         {req.result_url ? (
-                          <a 
-                            href={req.result_url} 
-                            target="_blank" 
-                            rel="noreferrer"
-                            className="inline-flex items-center px-4 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 font-medium text-sm transition"
-                          >
-                            <Download className="w-4 h-4 mr-2" /> Baixar PDF
-                          </a>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <a 
+                              href={req.result_url} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="inline-flex items-center justify-center px-4 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 font-medium text-sm transition"
+                            >
+                              <Download className="w-4 h-4 mr-2" /> Baixar PDF
+                            </a>
+                            <button
+                              onClick={() => setReportingIssueId(req.id)}
+                              className="inline-flex items-center justify-center px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium text-sm transition"
+                            >
+                              <AlertTriangle className="w-4 h-4 mr-2 text-yellow-600" /> Relatar Problema
+                            </button>
+                          </div>
                         ) : (
                           <p className="text-xs text-gray-400 flex items-center">
                             <Clock className="w-3 h-3 mr-1" /> Aguardando processamento
@@ -215,6 +250,37 @@ export default function Dashboard() {
                         )}
                       </div>
                     </div>
+                    
+                    {/* Painel de reportar erro embutido */}
+                    {reportingIssueId === req.id && (
+                      <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg animate-in fade-in slide-in-from-top-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          O que precisa ser corrigido neste documento?
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={issueNotes}
+                          onChange={(e) => setIssueNotes(e.target.value)}
+                          className="w-full border border-gray-300 rounded-md p-2 focus:ring-primary focus:border-primary text-sm mb-3"
+                          placeholder="Ex: O nome da mãe saiu escrito errado..."
+                        ></textarea>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => setReportingIssueId(null)}
+                            className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-200 rounded-md transition"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={handleReportIssue}
+                            disabled={loading}
+                            className="px-3 py-1.5 text-sm bg-primary text-white font-medium rounded-md hover:bg-blue-900 transition disabled:opacity-50"
+                          >
+                            {loading ? 'Enviando...' : 'Enviar para Revisão'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
