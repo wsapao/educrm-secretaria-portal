@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
 
+import { supabase } from '../lib/supabase';
+
 export default function Login() {
   const [cpf, setCpf] = useState('');
   const [code, setCode] = useState('');
@@ -9,32 +11,56 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // URL base provisória para o backend do EduCRM
-  const API_URL = import.meta.env.VITE_EDUCRM_API_URL || 'http://localhost:5173';
-
   const handleCpfSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (cpf.length < 11) return alert('CPF inválido');
+    const cleanCpf = cpf.replace(/\D/g, '');
+    if (cleanCpf.length < 11) return alert('CPF inválido');
     
     setLoading(true);
     try {
-      // Faz chamada para a API Vercel Serverless do EduCRM
-      const res = await fetch(`${API_URL}/api/auth-cpf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cpf: cpf.replace(/\\D/g, '') })
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.error || 'Erro ao validar CPF');
+      // Formata como XXX.XXX.XXX-XX para cobrir registros salvos com pontuação
+      const formattedCpf = cleanCpf.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+
+      const { data: contacts, error: contactError } = await supabase
+        .from('contacts')
+        .select('*')
+        .in('cpf', [cleanCpf, formattedCpf]);
+
+      if (contactError) throw contactError;
+
+      if (!contacts || contacts.length === 0) {
+        throw new Error('CPF não encontrado na base de alunos.');
       }
 
-      alert(`Código enviado para o WhatsApp com final ${data.phonePreview}`);
+      const phone = contacts[0].phone;
+      if (!phone) throw new Error('Contato não possui telefone cadastrado.');
+
+      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+      const { error: otpError } = await supabase
+        .from('auth_otps')
+        .insert([{ cpf: cleanCpf, code: generatedCode, expires_at: expiresAt }]);
+
+      if (otpError) throw otpError;
+
+      const messageContent = `*EduSecretaria*\n\nSeu código de verificação é: *${generatedCode}*.\n\nEste código expira em 5 minutos. Não compartilhe com ninguém.`;
+
+      const { error: msgError } = await supabase
+        .from('messages')
+        .insert([{
+          phone: phone,
+          direction: 'outbound',
+          content: messageContent,
+          status: 'pending'
+        }]);
+
+      if (msgError) throw msgError;
+
+      alert(`Código enviado para o WhatsApp com final ${phone.slice(-4)}`);
       setStep('CODE');
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || 'Erro ao validar CPF');
     } finally {
       setLoading(false);
     }
@@ -46,26 +72,34 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/auth-verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cpf: cpf.replace(/\\D/g, ''), code })
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.error || 'Código inválido');
+      const cleanCpf = cpf.replace(/\D/g, '');
+      const { data: otps, error } = await supabase
+        .from('auth_otps')
+        .select('*')
+        .eq('cpf', cleanCpf)
+        .eq('code', code)
+        .gte('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (error || !otps || otps.length === 0) {
+        throw new Error('Código inválido ou expirado');
       }
 
+      const formattedCpf2 = cleanCpf.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+      const { data: contacts } = await supabase
+        .from('contacts')
+        .select('*')
+        .in('cpf', [cleanCpf, formattedCpf2]);
+
       // Salva no LocalStorage
-      localStorage.setItem('portal_token', data.token);
-      localStorage.setItem('portal_cpf', cpf);
-      localStorage.setItem('portal_contacts', JSON.stringify(data.contacts));
+      localStorage.setItem('portal_token', 'temp-token-' + code);
+      localStorage.setItem('portal_cpf', cleanCpf);
+      localStorage.setItem('portal_contacts', JSON.stringify(contacts));
 
       navigate('/dashboard');
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || 'Erro ao validar código');
     } finally {
       setLoading(false);
     }
