@@ -3,34 +3,16 @@ name: Deploy to HostGator
 on:
   push:
     branches: [main]
+    paths:
+      - 'dist/**'
   workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: |
-          rm -rf node_modules package-lock.json
-          npm install --legacy-peer-deps --force
-          ls node_modules/react-router-dom/package.json
-          ls node_modules/@supabase/supabase-js/package.json
-
-      - name: Build
-        run: npx vite build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_EDUCRM_API_URL: ${{ secrets.VITE_EDUCRM_API_URL }}
-          VITE_PUBLIC_BASE_PATH: /secretaria/
 
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
