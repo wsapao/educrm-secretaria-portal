@@ -16,10 +16,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: |
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps --force
+          ls node_modules/react-router-dom/package.json
+          ls node_modules/@supabase/supabase-js/package.json
 
       - name: Build
         run: npx vite build
