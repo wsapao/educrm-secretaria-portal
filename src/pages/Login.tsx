@@ -3,11 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { FileText, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
+import type { Contact, LoginStep } from '../lib/portalTypes';
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export default function Login() {
   const [cpf, setCpf] = useState('');
   const [code, setCode] = useState('');
-  const [step, setStep] = useState<'CPF' | 'CODE'>('CPF');
+  const [step, setStep] = useState<LoginStep>('CPF');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -25,14 +30,15 @@ export default function Login() {
         .from('contacts')
         .select('*')
         .in('cpf', [cleanCpf, formattedCpf]);
+      const typedContacts = (contacts ?? []) as Contact[];
 
       if (contactError) throw contactError;
 
-      if (!contacts || contacts.length === 0) {
+      if (typedContacts.length === 0) {
         throw new Error('CPF não encontrado na base de alunos.');
       }
 
-      const phone = contacts[0].phone;
+      const phone = typedContacts[0].phone;
       if (!phone) throw new Error('Contato não possui telefone cadastrado.');
 
       const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -47,20 +53,24 @@ export default function Login() {
       const messageContent = `*EduSecretaria*\n\nSeu código de verificação é: *${generatedCode}*.\n\nEste código expira em 5 minutos. Não compartilhe com ninguém.`;
 
       const { error: msgError } = await supabase
-        .from('messages')
+        .from('message_queue')
         .insert([{
           phone: phone,
-          direction: 'outbound',
-          content: messageContent,
+          message_text: messageContent,
           status: 'pending'
         }]);
 
       if (msgError) throw msgError;
 
+      // Dispara o processamento da fila em segundo plano (fire-and-forget) —
+      // garante que o OTP saia em segundos em vez de esperar o cron diário.
+      const apiUrl = import.meta.env.VITE_EDUCRM_API_URL || 'https://crm.esjt.com.br';
+      fetch(`${apiUrl}/api/process-queue`, { method: 'POST' }).catch(() => {});
+
       alert(`Código enviado para o WhatsApp com final ${phone.slice(-4)}`);
       setStep('CODE');
-    } catch (err: any) {
-      alert(err.message || 'Erro ao validar CPF');
+    } catch (error) {
+      alert(getErrorMessage(error, 'Erro ao validar CPF'));
     } finally {
       setLoading(false);
     }
@@ -91,15 +101,15 @@ export default function Login() {
         .from('contacts')
         .select('*')
         .in('cpf', [cleanCpf, formattedCpf2]);
+      const typedContacts = (contacts ?? []) as Contact[];
 
-      // Salva no LocalStorage
       localStorage.setItem('portal_token', 'temp-token-' + code);
       localStorage.setItem('portal_cpf', cleanCpf);
-      localStorage.setItem('portal_contacts', JSON.stringify(contacts));
+      localStorage.setItem('portal_contacts', JSON.stringify(typedContacts));
 
-      navigate('/dashboard');
-    } catch (err: any) {
-      alert(err.message || 'Erro ao validar código');
+      navigate('/pedidos');
+    } catch (error) {
+      alert(getErrorMessage(error, 'Erro ao validar código'));
     } finally {
       setLoading(false);
     }
