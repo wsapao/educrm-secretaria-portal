@@ -2,8 +2,9 @@
 
 @theme {
   --color-primary: #1e3a8a;
+  --color-school-red: #c0392b;
   --color-secondary: #f59e0b;
-  --color-background: #f8fafc;
+  --color-background: #f0f2f5;
   --color-foreground: #0f172a;
   --color-card: #ffffff;
   --color-border: #e2e8f0;
