@@ -4,11 +4,12 @@ import { supabase } from '../lib/supabase';
 import { CheckCircle2, XCircle, FileBadge2, Calendar, User } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
+import type { RequestRecord } from '../lib/portalTypes';
 
 export default function Validar() {
   const { protocol } = useParams<{ protocol: string }>();
   const [loading, setLoading] = useState(true);
-  const [requestData, setRequestData] = useState<any>(null);
+  const [requestData, setRequestData] = useState<RequestRecord | null>(null);
 
   useEffect(() => {
     async function validateDocument() {
@@ -22,7 +23,7 @@ export default function Validar() {
         .single();
         
       if (!error && data) {
-        setRequestData(data);
+        setRequestData(data as RequestRecord);
       }
       setLoading(false);
     }
@@ -37,6 +38,9 @@ export default function Validar() {
       </div>
     );
   }
+
+  const issuedAt = requestData?.updated_at ?? requestData?.created_at;
+  const resultUrl = requestData?.result_url ?? undefined;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -82,13 +86,13 @@ export default function Validar() {
                   <span className="text-xs text-gray-500 uppercase font-semibold">Data de Emissão</span>
                   <p className="font-medium text-gray-900 flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-primary" /> 
-                    {format(new Date(requestData.updated_at || requestData.created_at), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })}
+                    {issuedAt ? format(new Date(issuedAt), "dd 'de' MMMM 'de' yyyy", { locale: ptBR }) : 'Data indisponivel'}
                   </p>
                 </div>
               </div>
 
               <a 
-                href={requestData.result_url} 
+                href={resultUrl} 
                 target="_blank" 
                 rel="noreferrer"
                 className="mt-6 w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-blue-900 focus:outline-none"
@@ -112,7 +116,7 @@ export default function Validar() {
           )}
 
           <div className="mt-6 text-center">
-            <Link to="/login" className="text-sm font-medium text-primary hover:underline">
+            <Link to="/" className="text-sm font-medium text-primary hover:underline">
               Ir para a Página Inicial
             </Link>
           </div>

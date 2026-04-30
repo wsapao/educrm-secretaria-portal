@@ -2,52 +2,82 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { FileText, Download, Clock, LogOut, FileBadge2, AlertCircle, AlertTriangle } from 'lucide-react';
+import type { Contact, DocumentTemplate, RequestRecord } from '../lib/portalTypes';
+
+function readStoredContacts(): Contact[] {
+  const rawContacts = localStorage.getItem('portal_contacts');
+  if (!rawContacts) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(rawContacts) as Contact[];
+  } catch {
+    return [];
+  }
+}
+
+async function loadDashboardData(requesterCpf: string) {
+  const [{ data: templateData }, { data: requestData }] = await Promise.all([
+    supabase.from('document_templates').select('*').eq('active', true),
+    supabase
+      .from('requests')
+      .select('*')
+      .eq('requester_cpf', requesterCpf)
+      .order('created_at', { ascending: false }),
+  ]);
+
+  return {
+    templates: (templateData ?? []) as DocumentTemplate[],
+    requests: (requestData ?? []) as RequestRecord[],
+  };
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [contacts, setContacts] = useState<any[]>([]);
-  const [requests, setRequests] = useState<any[]>([]);
-  const [templates, setTemplates] = useState<any[]>([]);
-  const [selectedStudent, setSelectedStudent] = useState('');
+  const [contacts] = useState<Contact[]>(() => readStoredContacts());
+  const [requests, setRequests] = useState<RequestRecord[]>([]);
+  const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState(() => {
+    const storedContacts = readStoredContacts();
+    return storedContacts[0]?.id.toString() ?? '';
+  });
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [loading, setLoading] = useState(false);
   const [reportingIssueId, setReportingIssueId] = useState<number | null>(null);
   const [issueNotes, setIssueNotes] = useState('');
 
   const cpf = localStorage.getItem('portal_cpf');
-  // Em prod usar o token adequadamente, aqui estamos apenas pegando cpf do state
 
   useEffect(() => {
     if (!cpf) {
-      navigate('/login');
+      navigate('/');
       return;
     }
-    
-    // Carrega contatos salvos no login
-    const savedContacts = JSON.parse(localStorage.getItem('portal_contacts') || '[]');
-    setContacts(savedContacts);
-    if(savedContacts.length > 0) setSelectedStudent(savedContacts[0].id.toString());
+    const requesterCpf = cpf;
 
-    loadData();
-  }, [cpf]);
+    let ignore = false;
 
-  async function loadData() {
-    // Busca templates disponíveis
-    const { data: tpls } = await supabase.from('document_templates').select('*').eq('active', true);
-    if (tpls) setTemplates(tpls);
+    async function syncDashboard() {
+      const data = await loadDashboardData(requesterCpf);
+      if (ignore) {
+        return;
+      }
 
-    // Busca histórico de solicitações
-    const { data: reqs } = await supabase
-      .from('requests')
-      .select('*')
-      .eq('requester_cpf', cpf)
-      .order('created_at', { ascending: false });
-    if (reqs) setRequests(reqs);
-  }
+      setTemplates(data.templates);
+      setRequests(data.requests);
+    }
+
+    void syncDashboard();
+
+    return () => {
+      ignore = true;
+    };
+  }, [cpf, navigate]);
 
   const handleLogout = () => {
     localStorage.clear();
-    navigate('/login');
+    navigate('/');
   };
 
   const handleRequest = async () => {
@@ -57,8 +87,10 @@ export default function Dashboard() {
     try {
       const student = contacts.find(c => c.id.toString() === selectedStudent);
       const template = templates.find(t => t.id.toString() === selectedTemplate);
+      if (!student || !template || !cpf) {
+        throw new Error('Dados da solicitacao incompletos.');
+      }
 
-      // Se for um documento manual, cria direto no banco
       if (template.type === 'manual') {
         const protocol = `SEC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
         await supabase.from('requests').insert([{
@@ -71,36 +103,47 @@ export default function Dashboard() {
           channel: 'portal'
         }]);
         alert(`Protocolo ${protocol} gerado com sucesso!`);
-        loadData();
-      } 
-      // Se for automático, chama a API de geração que já cria o pedido e faz upload
-      else {
-        // Chamada pra API Vercel
-        const API_URL = import.meta.env.VITE_EDUCRM_API_URL || 'http://localhost:5173';
-        
-        // Primeiro cria o request provisorio no banco para pegar um ID
+      } else {
+        const API_URL = import.meta.env.VITE_EDUCRM_API_URL || 'https://crm.esjt.com.br';
+
         const protocol = `SEC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
         const { data: reqData } = await supabase.from('requests').insert([{
           protocol, requester_cpf: cpf, student_name: student.student_name, contact_id: student.id, template_id: template.id, document_name: template.name, channel: 'portal', status: 'Em produção'
         }]).select().single();
 
-        // Manda o ID pra API de geração gerar o PDF e anexar
+        const shiftToHorario: Record<string, string> = {
+          'Manhã': '07:30h às 11:30h',
+          'Tarde': '13:00h às 17:00h',
+          'Integral': '07:30h às 17:00h',
+        };
+        const horario = student.horario || (student.shift ? shiftToHorario[student.shift] : '') || '';
+
         await fetch(`${API_URL}/api/generate-pdf`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             requestId: reqData?.id,
             protocol: protocol,
+            cpfResponsavel: cpf,
+            alunoId: student.activesoft_aluno_id,
             studentName: student.student_name,
             parentName: student.parent_name,
+            motherName: student.mother_name,
+            fatherName: student.father_name,
+            serie: student.grade,
+            horario,
+            anoLetivo: new Date().getFullYear().toString(),
+            templateSlug: template.slug,
             templateName: template.name
           })
         });
 
         alert('Documento gerado com sucesso!');
-        loadData();
       }
-    } catch(err) {
+      const data = await loadDashboardData(cpf);
+      setTemplates(data.templates);
+      setRequests(data.requests);
+    } catch {
       alert('Erro ao solicitar documento');
     } finally {
       setLoading(false);
@@ -111,7 +154,6 @@ export default function Dashboard() {
     if (!issueNotes.trim()) return alert('Por favor, descreva o problema.');
     setLoading(true);
     try {
-      // Pega os notes antigos, se houver
       const req = requests.find(r => r.id === reportingIssueId);
       const newNotes = req?.notes ? `${req.notes}\n---\nProblema relatado pelo Pai: ${issueNotes}` : `Problema relatado pelo Pai: ${issueNotes}`;
 
@@ -123,8 +165,12 @@ export default function Dashboard() {
       alert('Sua solicitação de revisão foi enviada para a secretaria!');
       setReportingIssueId(null);
       setIssueNotes('');
-      loadData();
-    } catch(err) {
+      if (cpf) {
+        const data = await loadDashboardData(cpf);
+        setTemplates(data.templates);
+        setRequests(data.requests);
+      }
+    } catch {
       alert('Erro ao relatar problema.');
     } finally {
       setLoading(false);

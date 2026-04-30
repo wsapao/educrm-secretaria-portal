@@ -1,8 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 
-// No mundo real, essas variáveis viriam do .env
-// Substitua pelas chaves reais do seu projeto EduCRM no Supabase
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error(
+    'Configuração ausente do Supabase. Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no ambiente.',
+  );
+}
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
