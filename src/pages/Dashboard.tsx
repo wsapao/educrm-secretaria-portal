@@ -161,7 +161,9 @@ export default function Dashboard() {
   const activeTemplate = templates.find(t => t.id.toString() === selectedTemplate);
   const step1Done = !!activeStudent;
   const step2Done = !!activeTemplate;
-  const parentInitial = (cpf?.[0] ?? 'R').toUpperCase();
+  const parentFullName = contacts[0]?.parent_name ?? contacts[0]?.mother_name ?? null;
+  const parentFirstName = parentFullName ? parentFullName.trim().split(' ')[0] : 'responsável';
+  const parentInitial = parentFirstName[0].toUpperCase();
 
   return (
     <div className="min-h-screen bg-background">
@@ -182,7 +184,7 @@ export default function Dashboard() {
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-primary text-xs font-bold text-white">
               {parentInitial}
             </div>
-            <span className="text-sm font-medium text-slate-700">Olá, responsável</span>
+            <span className="text-sm font-medium text-slate-700">Olá, {parentFirstName}</span>
           </div>
           <button
             onClick={handleLogout}
