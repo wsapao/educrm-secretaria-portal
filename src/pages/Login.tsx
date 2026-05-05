@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
+import type { LoginStep } from '../lib/portalTypes';
 
-import { supabase } from '../lib/supabase';
-import type { Contact, LoginStep } from '../lib/portalTypes';
+const API_URL = import.meta.env.VITE_EDUCRM_API_URL || 'https://crm.esjt.com.br';
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -14,60 +14,30 @@ export default function Login() {
   const [code, setCode] = useState('');
   const [step, setStep] = useState<LoginStep>('CPF');
   const [loading, setLoading] = useState(false);
+  const [phonePreview, setPhonePreview] = useState('');
   const navigate = useNavigate();
 
   const handleCpfSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCpf = cpf.replace(/\D/g, '');
     if (cleanCpf.length < 11) return alert('CPF inválido');
-    
+
     setLoading(true);
     try {
-      // Formata como XXX.XXX.XXX-XX para cobrir registros salvos com pontuação
-      const formattedCpf = cleanCpf.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+      const res = await fetch(`${API_URL}/api/auth-cpf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: cleanCpf }),
+      });
 
-      const { data: contacts, error: contactError } = await supabase
-        .from('contacts')
-        .select('*')
-        .in('cpf', [cleanCpf, formattedCpf]);
-      const typedContacts = (contacts ?? []) as Contact[];
+      const data = await res.json();
 
-      if (contactError) throw contactError;
-
-      if (typedContacts.length === 0) {
-        throw new Error('CPF não encontrado na base de alunos.');
+      if (!res.ok) {
+        throw new Error(data.error || 'CPF não encontrado ou sem telefone cadastrado.');
       }
 
-      const phone = typedContacts[0].phone;
-      if (!phone) throw new Error('Contato não possui telefone cadastrado.');
-
-      const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-
-      const { error: otpError } = await supabase
-        .from('auth_otps')
-        .insert([{ cpf: cleanCpf, code: generatedCode, expires_at: expiresAt }]);
-
-      if (otpError) throw otpError;
-
-      const messageContent = `*EduSecretaria*\n\nSeu código de verificação é: *${generatedCode}*.\n\nEste código expira em 5 minutos. Não compartilhe com ninguém.`;
-
-      const { error: msgError } = await supabase
-        .from('message_queue')
-        .insert([{
-          phone: phone,
-          message_text: messageContent,
-          status: 'pending'
-        }]);
-
-      if (msgError) throw msgError;
-
-      // Dispara o processamento da fila em segundo plano (fire-and-forget) —
-      // garante que o OTP saia em segundos em vez de esperar o cron diário.
-      const apiUrl = import.meta.env.VITE_EDUCRM_API_URL || 'https://crm.esjt.com.br';
-      fetch(`${apiUrl}/api/process-queue`, { method: 'POST' }).catch(() => {});
-
-      alert(`Código enviado para o WhatsApp com final ${phone.slice(-4)}`);
+      setPhonePreview(data.phonePreview || '');
+      alert(`Código enviado para o WhatsApp com final ${(data.phonePreview || '').slice(-4)}`);
       setStep('CODE');
     } catch (error) {
       alert(getErrorMessage(error, 'Erro ao validar CPF'));
@@ -83,29 +53,22 @@ export default function Login() {
     setLoading(true);
     try {
       const cleanCpf = cpf.replace(/\D/g, '');
-      const { data: otps, error } = await supabase
-        .from('auth_otps')
-        .select('*')
-        .eq('cpf', cleanCpf)
-        .eq('code', code)
-        .gte('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false })
-        .limit(1);
 
-      if (error || !otps || otps.length === 0) {
-        throw new Error('Código inválido ou expirado');
+      const res = await fetch(`${API_URL}/api/auth-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: cleanCpf, code }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Código inválido ou expirado');
       }
 
-      const formattedCpf2 = cleanCpf.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
-      const { data: contacts } = await supabase
-        .from('contacts')
-        .select('*')
-        .in('cpf', [cleanCpf, formattedCpf2]);
-      const typedContacts = (contacts ?? []) as Contact[];
-
-      localStorage.setItem('portal_token', 'temp-token-' + code);
+      localStorage.setItem('portal_token', data.token);
       localStorage.setItem('portal_cpf', cleanCpf);
-      localStorage.setItem('portal_contacts', JSON.stringify(typedContacts));
+      localStorage.setItem('portal_contacts', JSON.stringify(data.contacts ?? []));
 
       navigate('/pedidos');
     } catch (error) {
@@ -133,7 +96,7 @@ export default function Login() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-100">
-          
+
           {step === 'CPF' ? (
             <form onSubmit={handleCpfSubmit} className="space-y-6">
               <div>
@@ -167,7 +130,8 @@ export default function Login() {
                 <div className="flex items-center">
                   <Phone className="h-5 w-5 text-primary mr-2" />
                   <p className="text-sm text-blue-700">
-                    Enviamos um código de 6 dígitos para o seu WhatsApp.
+                    Enviamos um código de 6 dígitos para o seu WhatsApp
+                    {phonePreview ? ` (${phonePreview})` : ''}.
                   </p>
                 </div>
               </div>
@@ -197,7 +161,7 @@ export default function Login() {
                 {loading ? 'Validando...' : 'Acessar Secretaria'}
                 <ShieldCheck className="ml-2 h-5 w-5" />
               </button>
-              
+
               <div className="text-center mt-4">
                 <button type="button" onClick={() => setStep('CPF')} className="text-sm text-primary font-medium hover:underline">
                   Voltar e digitar outro CPF
