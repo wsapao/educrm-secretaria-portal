@@ -43,20 +43,10 @@ Se a API tambem for hospedada no mesmo projeto Vercel, essa regra precisa ser aj
 - Solicitar um documento manual
 - Solicitar um documento automatico
 - Baixar o PDF gerado
-- Validar um protocolo em `/secretaria/validar/:protocol` quando publicado em subpasta
+- Validar um protocolo em `/validar/:protocol`
 - Relatar problema em um documento emitido
 
-## 6. Validacao publica do PDF
-
-Ao publicar em dominio/subpasta, o gerador externo de PDF deve apontar o QR Code e o texto "Valide em:" para a URL publica final.
-
-Exemplo deste projeto em HostGator:
-
-- `https://SEU-DOMINIO/secretaria/validar/SEC-2026-6781`
-
-Nunca usar URLs locais como `http://localhost:5173/validar/...` em documentos emitidos.
-
-## 7. Pendencias externas
+## 6. Pendencias externas
 
 O frontend esta pronto para build, mas depende de itens fora deste repositorio:
 
