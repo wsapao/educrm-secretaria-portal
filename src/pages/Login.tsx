@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
-import type { LoginStep } from '../lib/portalTypes';
+import { DEFAULT_SCHOOL_BRANDING, loadSchoolBranding } from '../lib/branding';
+import type { LoginStep, SchoolBranding } from '../lib/portalTypes';
 
 const API_URL = import.meta.env.VITE_EDUCRM_API_URL || 'https://crm.esjt.com.br';
 
@@ -15,7 +16,16 @@ export default function Login() {
   const [step, setStep] = useState<LoginStep>('CPF');
   const [loading, setLoading] = useState(false);
   const [phonePreview, setPhonePreview] = useState('');
+  const [schoolBranding, setSchoolBranding] = useState<SchoolBranding>(DEFAULT_SCHOOL_BRANDING);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let ignore = false;
+    void loadSchoolBranding().then((branding) => {
+      if (!ignore) setSchoolBranding(branding);
+    });
+    return () => { ignore = true; };
+  }, []);
 
   const handleCpfSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,15 +92,23 @@ export default function Login() {
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <div className="h-14 w-14 bg-primary rounded-xl flex items-center justify-center shadow-lg">
-            <FileText className="h-8 w-8 text-white" />
-          </div>
+          {schoolBranding.logo ? (
+            <img
+              src={schoolBranding.logo}
+              alt={schoolBranding.nome}
+              className="max-h-16 max-w-[220px] object-contain"
+            />
+          ) : (
+            <div className="h-14 w-14 bg-primary rounded-xl flex items-center justify-center shadow-lg">
+              <FileText className="h-8 w-8 text-white" />
+            </div>
+          )}
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Secretaria Digital
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Solicite documentos sem precisar criar senhas.
+          {schoolBranding.nome} · Solicite documentos sem precisar criar senhas.
         </p>
       </div>
 

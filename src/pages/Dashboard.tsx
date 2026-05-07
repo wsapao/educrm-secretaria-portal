@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { LogOut, BookOpen, User, FileText, Send, Shield, Clock, Headphones } from 'lucide-react';
-import type { Contact, DocumentTemplate, RequestRecord } from '../lib/portalTypes';
+import { DEFAULT_SCHOOL_BRANDING, loadSchoolBranding } from '../lib/branding';
+import type { Contact, DocumentTemplate, RequestRecord, SchoolBranding } from '../lib/portalTypes';
 import { SelectionCard } from '../components/SelectionCard';
 import { PedidoItem } from '../components/PedidoItem';
 
@@ -67,16 +68,18 @@ export default function Dashboard() {
   const [issueNotes, setIssueNotes] = useState('');
   const [showStudentPicker, setShowStudentPicker] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [schoolBranding, setSchoolBranding] = useState<SchoolBranding>(DEFAULT_SCHOOL_BRANDING);
 
   const cpf = localStorage.getItem('portal_cpf') ?? '';
 
   useEffect(() => {
     if (!cpf) { navigate('/'); return; }
     let ignore = false;
-    void loadDashboardData(cpf).then(data => {
+    void Promise.all([loadDashboardData(cpf), loadSchoolBranding()]).then(([data, branding]) => {
       if (ignore) return;
       setTemplates(data.templates);
       setRequests(data.requests);
+      setSchoolBranding(branding);
     });
     return () => { ignore = true; };
   }, [cpf, navigate]);
@@ -171,12 +174,20 @@ export default function Dashboard() {
       {/* ── Header ── */}
       <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-border bg-white px-6 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-school-red shadow-sm">
-            <BookOpen className="h-5 w-5 text-white" />
-          </div>
+          {schoolBranding.logo ? (
+            <img
+              src={schoolBranding.logo}
+              alt={schoolBranding.nome}
+              className="max-h-10 max-w-[132px] object-contain"
+            />
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-school-red shadow-sm">
+              <BookOpen className="h-5 w-5 text-white" />
+            </div>
+          )}
           <div>
             <p className="text-sm font-bold leading-none text-primary">Secretaria Digital</p>
-            <p className="text-[11px] text-slate-400">Educandário São Judas Tadeu</p>
+            <p className="text-[11px] text-slate-400">{schoolBranding.nome}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">

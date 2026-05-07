@@ -1,5 +1,10 @@
 export type LoginStep = 'CPF' | 'CODE';
 
+export interface SchoolBranding {
+  nome: string;
+  logo: string | null;
+}
+
 export interface Contact {
   id: number;
   cpf: string;
