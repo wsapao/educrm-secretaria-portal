@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
 import { CheckCircle2, XCircle, FileBadge2, Calendar, User } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 import type { RequestRecord } from '../lib/portalTypes';
+import { validatePortalDocument } from '../lib/api';
 
 export default function Validar() {
   const { protocol } = useParams<{ protocol: string }>();
@@ -14,18 +14,15 @@ export default function Validar() {
   useEffect(() => {
     async function validateDocument() {
       if (!protocol) return;
-      
-      const { data, error } = await supabase
-        .from('requests')
-        .select('*')
-        .eq('protocol', protocol)
-        .in('status', ['Finalizado', 'Pronto para download/retirada'])
-        .single();
-        
-      if (!error && data) {
-        setRequestData(data as RequestRecord);
+
+      try {
+        const { request } = await validatePortalDocument(protocol);
+        if (request) {
+          setRequestData(request);
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
     
     validateDocument();

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Historico from './pages/Historico';
 import Validar from './pages/Validar';
 import { DEFAULT_SCHOOL_BRANDING, loadSchoolBranding } from './lib/branding';
 
@@ -26,6 +27,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/pedidos" element={<Dashboard />} />
+        <Route path="/historico" element={<Historico />} />
         <Route path="/validar/:protocol" element={<Validar />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

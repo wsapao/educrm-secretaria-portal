@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
 import { LogOut, BookOpen, User, FileText, Send, Shield, Clock, Headphones } from 'lucide-react';
 import { DEFAULT_SCHOOL_BRANDING, loadSchoolBranding } from '../lib/branding';
 import type { Contact, DocumentTemplate, RequestRecord, SchoolBranding } from '../lib/portalTypes';
 import { SelectionCard } from '../components/SelectionCard';
 import { PedidoItem } from '../components/PedidoItem';
+import { API_URL, createPortalRequest, getPortalToken, fetchPortalDashboard, reportPortalIssue } from '../lib/api';
 
 const WHATSAPP_NUMBER = '5500000000000'; // substituir pelo número real da secretaria
+const READY_STATUSES = ['Pronto para download/retirada', 'Finalizado'] as const;
+const PRODUCTION_STATUS = 'Em produção';
 
 function readStoredContacts(): Contact[] {
   try {
@@ -18,18 +20,56 @@ function readStoredContacts(): Contact[] {
 }
 
 async function loadDashboardData(requesterCpf: string) {
-  const [{ data: templateData }, { data: requestData }] = await Promise.all([
-    supabase.from('document_templates').select('*').eq('active', true),
-    supabase
-      .from('requests')
-      .select('*')
-      .eq('requester_cpf', requesterCpf)
-      .order('created_at', { ascending: false }),
-  ]);
+  const data = await fetchPortalDashboard(requesterCpf);
   return {
-    templates: (templateData ?? []) as DocumentTemplate[],
-    requests: (requestData ?? []) as RequestRecord[],
+    templates: data.templates,
+    requests: data.requests,
   };
+}
+
+function isRequestReady(status: string) {
+  return READY_STATUSES.includes(status as (typeof READY_STATUSES)[number]);
+}
+
+function getRequestSuccessMessage(request: RequestRecord | null) {
+  if (request && isRequestReady(request.status) && request.result_url) {
+    return 'Documento gerado com sucesso! O PDF já está disponível no histórico.';
+  }
+
+  return 'Solicitação enviada com sucesso! O documento aparecerá no histórico assim que ficar pronto.';
+}
+
+async function waitForRequestAvailability(requestId: number, attempts = 6, intervalMs = 1500) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const dashboard = await fetchPortalDashboard(localStorage.getItem('portal_cpf') ?? '');
+    const request = dashboard.requests.find((item) => item.id === requestId) ?? null;
+    if (request && (isRequestReady(request.status) || Boolean(request.result_url))) {
+      return request;
+    }
+
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
+    }
+  }
+
+  return null;
+}
+
+async function parseApiError(response: Response) {
+  const fallback = 'Não foi possível gerar o documento agora.';
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (contentType.includes('application/json')) {
+    const payload = (await response.json()) as { error?: string; message?: string };
+    return payload.error ?? payload.message ?? fallback;
+  }
+
+  const text = (await response.text()).trim();
+  return text || fallback;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function StepIcon({ done, active, num }: { done: boolean; active: boolean; num: number }) {
@@ -69,20 +109,56 @@ export default function Dashboard() {
   const [showStudentPicker, setShowStudentPicker] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [schoolBranding, setSchoolBranding] = useState<SchoolBranding>(DEFAULT_SCHOOL_BRANDING);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const cpf = localStorage.getItem('portal_cpf') ?? '';
+  const portalToken = getPortalToken();
+
+  const fetchDashboardState = async (requesterCpf: string) => {
+    const [data, branding] = await Promise.all([loadDashboardData(requesterCpf), loadSchoolBranding()]);
+    return { data, branding };
+  };
 
   useEffect(() => {
     if (!cpf) { navigate('/'); return; }
     let ignore = false;
-    void Promise.all([loadDashboardData(cpf), loadSchoolBranding()]).then(([data, branding]) => {
-      if (ignore) return;
-      setTemplates(data.templates);
-      setRequests(data.requests);
-      setSchoolBranding(branding);
-    });
+    setInitialLoading(true);
+    setLoadError('');
+    void fetchDashboardState(cpf)
+      .then(({ data, branding }) => {
+        if (ignore) return;
+        setTemplates(data.templates);
+        setRequests(data.requests);
+        setSchoolBranding(branding);
+        setInitialLoading(false);
+      })
+      .catch((error) => {
+        if (ignore) return;
+        setLoadError(getErrorMessage(error, 'Não foi possível carregar os documentos disponíveis agora.'));
+        setInitialLoading(false);
+      });
     return () => { ignore = true; };
   }, [cpf, navigate]);
+
+  useEffect(() => {
+    if (!cpf || !requests.some((request) => request.status === PRODUCTION_STATUS)) return;
+
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      void loadDashboardData(cpf)
+        .then((data) => {
+          if (cancelled) return;
+          setRequests(data.requests);
+        })
+        .catch(() => {});
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [cpf, requests]);
 
   const handleLogout = () => { localStorage.clear(); navigate('/'); };
 
@@ -95,30 +171,36 @@ export default function Dashboard() {
       if (!student || !template || !cpf) throw new Error('Dados incompletos.');
 
       if (template.type === 'manual') {
-        const protocol = `SEC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-        await supabase.from('requests').insert([{
-          protocol, requester_cpf: cpf, student_name: student.student_name,
-          contact_id: student.id, template_id: template.id, document_name: template.name, channel: 'portal',
-        }]);
-        alert(`Protocolo ${protocol} gerado com sucesso!`);
+        const { request } = await createPortalRequest({
+          cpf,
+          studentName: student.student_name,
+          contactId: student.id,
+          templateId: template.id,
+          channel: 'portal',
+        });
+        alert(`Protocolo ${request.protocol} gerado com sucesso!`);
       } else {
-        const API_URL = import.meta.env.VITE_EDUCRM_API_URL || 'https://crm.esjt.com.br';
-        const protocol = `SEC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-        const { data: reqData } = await supabase.from('requests').insert([{
-          protocol, requester_cpf: cpf, student_name: student.student_name, contact_id: student.id,
-          template_id: template.id, document_name: template.name, channel: 'portal', status: 'Em produção',
-        }]).select().single();
+        const { request: reqData } = await createPortalRequest({
+          cpf,
+          studentName: student.student_name,
+          contactId: student.id,
+          templateId: template.id,
+          channel: 'portal',
+        });
 
         const shiftToHorario: Record<string, string> = {
           'Manhã': '07:30h às 11:30h', 'Tarde': '13:00h às 17:00h', 'Integral': '07:30h às 17:00h',
         };
         const horario = student.horario || (student.shift ? shiftToHorario[student.shift] : '') || '';
 
-        await fetch(`${API_URL}/api/generate-pdf`, {
+        const response = await fetch(`${API_URL}/api/generate-pdf`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(portalToken ? { Authorization: `Bearer ${portalToken}` } : {}),
+          },
           body: JSON.stringify({
-            requestId: reqData?.id, protocol, cpfResponsavel: cpf,
+            requestId: reqData.id, protocol: reqData.protocol, cpfResponsavel: cpf,
             alunoId: student.activesoft_aluno_id, studentName: student.student_name,
             parentName: student.parent_name, motherName: student.mother_name,
             fatherName: student.father_name, serie: student.grade, horario,
@@ -126,13 +208,23 @@ export default function Dashboard() {
             templateSlug: template.slug, templateName: template.name,
           }),
         });
-        alert('Documento gerado com sucesso!');
+
+        if (!response.ok) {
+          throw new Error(await parseApiError(response));
+        }
+
+        const readyRequest = reqData?.id
+          ? await waitForRequestAvailability(reqData.id)
+          : null;
+
+        alert(getRequestSuccessMessage(readyRequest));
       }
       const data = await loadDashboardData(cpf);
+      setLoadError('');
       setTemplates(data.templates);
       setRequests(data.requests);
-    } catch {
-      alert('Erro ao solicitar documento');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Erro ao solicitar documento');
     } finally {
       setLoading(false);
     }
@@ -142,15 +234,16 @@ export default function Dashboard() {
     if (!issueNotes.trim()) return alert('Por favor, descreva o problema.');
     setLoading(true);
     try {
-      const req = requests.find(r => r.id === reportingIssueId);
-      const newNotes = req?.notes
-        ? `${req.notes}\n---\nProblema relatado pelo Pai: ${issueNotes}`
-        : `Problema relatado pelo Pai: ${issueNotes}`;
-      await supabase.from('requests').update({ status: 'Em análise', notes: newNotes }).eq('id', reportingIssueId);
+      await reportPortalIssue({
+        cpf,
+        requestId: reportingIssueId as number,
+        issueNotes,
+      });
       alert('Sua solicitação de revisão foi enviada!');
       setReportingIssueId(null);
       setIssueNotes('');
       const data = await loadDashboardData(cpf);
+      setLoadError('');
       setTemplates(data.templates);
       setRequests(data.requests);
     } catch {
@@ -241,6 +334,35 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {loadError ? (
+          <div className="mb-5 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm text-red-700 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>{loadError}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setInitialLoading(true);
+                  setLoadError('');
+                  void fetchDashboardState(cpf)
+                    .then(({ data, branding }) => {
+                      setTemplates(data.templates);
+                      setRequests(data.requests);
+                      setSchoolBranding(branding);
+                      setInitialLoading(false);
+                    })
+                    .catch((error) => {
+                      setLoadError(getErrorMessage(error, 'Não foi possível carregar os documentos disponíveis agora.'));
+                      setInitialLoading(false);
+                    });
+                }}
+                className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {/* ── Nova Solicitação ── */}
         <div className="mb-5 rounded-2xl border border-border bg-white shadow-sm">
           <div className="flex items-center gap-3 border-b border-slate-50 px-6 py-4">
@@ -317,6 +439,12 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
+
+            {!initialLoading && templates.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Nenhum documento está disponível para solicitação no momento. Se isso persistir, fale com a secretaria.
+              </div>
+            ) : null}
 
             <div className="mt-5 flex flex-col items-end gap-2">
               <button
