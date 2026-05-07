@@ -6,6 +6,11 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 import type { RequestRecord } from '../lib/portalTypes';
 
+function isAuthenticRequest(request: RequestRecord | null): request is RequestRecord {
+  if (!request) return false;
+  return request.status !== 'Cancelado' && Boolean(request.result_url);
+}
+
 export default function Validar() {
   const { protocol } = useParams<{ protocol: string }>();
   const [loading, setLoading] = useState(true);
@@ -19,10 +24,9 @@ export default function Validar() {
         .from('requests')
         .select('*')
         .eq('protocol', protocol)
-        .in('status', ['Finalizado', 'Pronto para download/retirada'])
         .single();
         
-      if (!error && data) {
+      if (!error && isAuthenticRequest(data as RequestRecord)) {
         setRequestData(data as RequestRecord);
       }
       setLoading(false);

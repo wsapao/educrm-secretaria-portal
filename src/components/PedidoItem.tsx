@@ -1,6 +1,10 @@
 import { Download, AlertTriangle, Clock, FileCheck, Activity } from 'lucide-react';
 import type { RequestRecord } from '../lib/portalTypes';
 
+function isReadyRequest(req: RequestRecord) {
+  return req.status !== 'Cancelado' && Boolean(req.result_url);
+}
+
 function StatusBadge({ status }: { status: string }) {
   if (status === 'Pronto para download/retirada' || status === 'Finalizado') {
     return (
@@ -54,7 +58,7 @@ export function PedidoItem({
   onReport, onCancelReport, onIssueNotesChange, onSubmitIssue,
 }: PedidoItemProps) {
   const { bg, icon } = statusIconStyle(req.status);
-  const isReady = req.status === 'Pronto para download/retirada' || req.status === 'Finalizado';
+  const isReady = isReadyRequest(req);
 
   return (
     <li className="border-b border-slate-100 last:border-b-0">
