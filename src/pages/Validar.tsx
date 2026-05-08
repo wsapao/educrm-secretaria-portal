@@ -3,23 +3,30 @@ import { useParams, Link } from 'react-router-dom';
 import { CheckCircle2, XCircle, FileBadge2, Calendar, User } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
-import type { RequestRecord } from '../lib/portalTypes';
+import { DEFAULT_SCHOOL_BRANDING, loadSchoolBranding } from '../lib/branding';
+import type { RequestRecord, SchoolBranding } from '../lib/portalTypes';
 import { validatePortalDocument } from '../lib/api';
 
 export default function Validar() {
   const { protocol } = useParams<{ protocol: string }>();
   const [loading, setLoading] = useState(true);
   const [requestData, setRequestData] = useState<RequestRecord | null>(null);
+  const [schoolBranding, setSchoolBranding] = useState<SchoolBranding>(DEFAULT_SCHOOL_BRANDING);
 
   useEffect(() => {
     async function validateDocument() {
       if (!protocol) return;
 
       try {
-        const { request } = await validatePortalDocument(protocol);
+        const [{ request }, branding] = await Promise.all([
+          validatePortalDocument(protocol),
+          loadSchoolBranding(),
+        ]);
+
         if (request) {
           setRequestData(request);
         }
+        setSchoolBranding(branding);
       } finally {
         setLoading(false);
       }
@@ -47,7 +54,7 @@ export default function Validar() {
           Validação de Documento
         </h2>
         <p className="mt-2 text-sm text-gray-600">
-          Portal Oficial do Colégio EduCRM
+          {`Secretaria ${schoolBranding.nome}`}
         </p>
       </div>
 
