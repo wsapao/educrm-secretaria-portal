@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, BookOpen, User, FileText, Send, Shield, Clock, Headphones } from 'lucide-react';
+import { LogOut, BookOpen, User, FileText, Send, Shield, Clock } from 'lucide-react';
 import { DEFAULT_SCHOOL_BRANDING, loadSchoolBranding } from '../lib/branding';
 import type { Contact, DocumentTemplate, RequestRecord, SchoolBranding } from '../lib/portalTypes';
 import { SelectionCard } from '../components/SelectionCard';
 import { PedidoItem } from '../components/PedidoItem';
-import { API_URL, createPortalRequest, getPortalToken, fetchPortalDashboard, reportPortalIssue } from '../lib/api';
+import {
+  API_URL,
+  createPortalRequest,
+  getPortalToken,
+  fetchPortalDashboard,
+  reportPortalIssue,
+} from '../lib/api';
 
-const WHATSAPP_NUMBER = '5500000000000'; // substituir pelo número real da secretaria
 const READY_STATUSES = ['Pronto para download/retirada', 'Finalizado'] as const;
 const PRODUCTION_STATUS = 'Em produção';
 
@@ -111,6 +116,7 @@ export default function Dashboard() {
   const [schoolBranding, setSchoolBranding] = useState<SchoolBranding>(DEFAULT_SCHOOL_BRANDING);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [newRequestId, setNewRequestId] = useState<number | null>(null);
 
   const cpf = localStorage.getItem('portal_cpf') ?? '';
   const portalToken = getPortalToken();
@@ -123,8 +129,6 @@ export default function Dashboard() {
   useEffect(() => {
     if (!cpf) { navigate('/'); return; }
     let ignore = false;
-    setInitialLoading(true);
-    setLoadError('');
     void fetchDashboardState(cpf)
       .then(({ data, branding }) => {
         if (ignore) return;
@@ -170,24 +174,17 @@ export default function Dashboard() {
       const template = templates.find(t => t.id.toString() === selectedTemplate);
       if (!student || !template || !cpf) throw new Error('Dados incompletos.');
 
-      if (template.type === 'manual') {
-        const { request } = await createPortalRequest({
-          cpf,
-          studentName: student.student_name,
-          contactId: student.id,
-          templateId: template.id,
-          channel: 'portal',
-        });
-        alert(`Protocolo ${request.protocol} gerado com sucesso!`);
-      } else {
-        const { request: reqData } = await createPortalRequest({
-          cpf,
-          studentName: student.student_name,
-          contactId: student.id,
-          templateId: template.id,
-          channel: 'portal',
-        });
+      const { request: reqData } = await createPortalRequest({
+        cpf,
+        studentName: student.student_name,
+        contactId: student.id,
+        templateId: template.id,
+        channel: 'portal',
+      });
 
+      if (template.type === 'manual') {
+        alert(`Protocolo ${reqData.protocol} gerado com sucesso!`);
+      } else {
         const shiftToHorario: Record<string, string> = {
           'Manhã': '07:30h às 11:30h', 'Tarde': '13:00h às 17:00h', 'Integral': '07:30h às 17:00h',
         };
@@ -213,12 +210,16 @@ export default function Dashboard() {
           throw new Error(await parseApiError(response));
         }
 
-        const readyRequest = reqData?.id
+        const readyRequest = reqData.id
           ? await waitForRequestAvailability(reqData.id)
           : null;
 
         alert(getRequestSuccessMessage(readyRequest));
       }
+      setNewRequestId(reqData.id);
+      setSelectedTemplate('');
+      setSelectedStudent(contacts[0]?.id.toString() ?? '');
+      
       const data = await loadDashboardData(cpf);
       setLoadError('');
       setTemplates(data.templates);
@@ -482,10 +483,11 @@ export default function Dashboard() {
             </div>
           ) : (
             <ul className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
-              {requests.slice(0, 5).map(req => (
+              {requests.slice(0, 5).map((req, index) => (
                 <PedidoItem
                   key={req.id}
                   req={req}
+                  isNew={req.id === newRequestId || index === 0}
                   isReporting={reportingIssueId === req.id}
                   issueNotes={issueNotes}
                   loading={loading}
@@ -500,26 +502,25 @@ export default function Dashboard() {
         </section>
 
         {/* ── Ajuda ── */}
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-white px-6 py-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-2xl border border-border bg-white px-6 py-5 shadow-sm">
           <div className="flex items-center gap-4">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-50">
-              <Headphones className="h-5 w-5 text-primary" />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#015EDB]/10">
+              <svg className="h-6 w-6 text-[#015EDB]" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.03 2 11c0 2.84 1.48 5.35 3.8 6.97L4.5 22l4.47-2.3c.96.2 1.96.3 3.03.3 5.52 0 10-4.03 10-9s-4.48-9-10-9z"/>
+              </svg>
             </div>
             <div>
               <p className="text-sm font-bold text-slate-800">Precisa de ajuda?</p>
-              <p className="text-xs text-slate-500">Fale com a secretaria diretamente</p>
+              <p className="text-xs text-slate-500 mt-0.5 max-w-[280px] leading-relaxed">
+                Fale pelo <strong className="text-[#015EDB]">ClassApp</strong>, é o nosso canal de comunicação oficial da escola.
+              </p>
             </div>
           </div>
           <a
-            href={`https://wa.me/${WHATSAPP_NUMBER}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 rounded-xl bg-[#25d366] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#1ebe5d]"
+            href="#"
+            className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-[#015EDB] px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-[#015EDB]/20 transition-all hover:-translate-y-0.5 hover:bg-[#014eb5] hover:shadow-lg"
           >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="white">
-              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-            </svg>
-            Falar no WhatsApp
+            Falar no ClassApp
           </a>
         </div>
 
