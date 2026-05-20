@@ -502,26 +502,18 @@ export default function Dashboard() {
         </section>
 
         {/* ── Ajuda ── */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-2xl border border-border bg-white px-6 py-5 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#015EDB]/10">
-              <svg className="h-6 w-6 text-[#015EDB]" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.03 2 11c0 2.84 1.48 5.35 3.8 6.97L4.5 22l4.47-2.3c.96.2 1.96.3 3.03.3 5.52 0 10-4.03 10-9s-4.48-9-10-9z"/>
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm font-bold text-slate-800">Precisa de ajuda?</p>
-              <p className="text-xs text-slate-500 mt-0.5 max-w-[280px] leading-relaxed">
-                Fale pelo <strong className="text-[#015EDB]">ClassApp</strong>, é o nosso canal de comunicação oficial da escola.
-              </p>
-            </div>
+        <div className="flex items-center gap-4 rounded-2xl border border-border bg-white px-6 py-5 shadow-sm">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#015EDB]/10">
+            <svg className="h-6 w-6 text-[#015EDB]" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.03 2 11c0 2.84 1.48 5.35 3.8 6.97L4.5 22l4.47-2.3c.96.2 1.96.3 3.03.3 5.52 0 10-4.03 10-9s-4.48-9-10-9z"/>
+            </svg>
           </div>
-          <a
-            href="#"
-            className="flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-[#015EDB] px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-[#015EDB]/20 transition-all hover:-translate-y-0.5 hover:bg-[#014eb5] hover:shadow-lg"
-          >
-            Falar no ClassApp
-          </a>
+          <div>
+            <p className="text-sm font-bold text-slate-800">Precisa de ajuda?</p>
+            <p className="text-sm text-slate-500 mt-0.5 leading-relaxed">
+              Abra o aplicativo <strong className="text-[#015EDB]">ClassApp</strong> no seu celular e envie uma mensagem para a secretaria. Esse é o nosso canal de comunicação oficial.
+            </p>
+          </div>
         </div>
 
       </main>
